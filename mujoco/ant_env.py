@@ -1,66 +1,110 @@
-from rllab.envs.mujoco.mujoco_env import MujocoEnv
-from rllab.core.serializable import Serializable
-from rllab.envs.base import Step
-from rllab.misc.overrides import overrides
-from rllab.misc import logger
-
-from rllab.envs.mujoco.mujoco_env import q_mult, q_inv
 import numpy as np
-import math
+from gym import utils
+from gym.envs.mujoco import mujoco_env
+import gym
+from maze_utils import construct_maze
+
+import tempfile
+import xml.etree.ElementTree as ET
+import numpy as np
 
 
-class AntEnv(MujocoEnv, Serializable):
+class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
+    def __init__(self):
+        import os, sys
+        sys.path.append(os.path.dirname(__file__))
+        
+        model_file = '/home/bhairav/coding/ant-env/models/ant.xml'
+        file_path = self._load_maze(model_file)
 
-    FILE = 'ant.xml'
-    ORI_IND = 3
+        mujoco_env.MujocoEnv.__init__(self, file_path, 5)
+        utils.EzPickle.__init__(self)
 
-    def __init__(self, *args, **kwargs):
-        super(AntEnv, self).__init__(*args, **kwargs)
-        Serializable.__init__(self, *args, **kwargs)
+    def _load_maze(self, model_file, maze_height=0.5, maze_size_scaling=2):
+        tree = ET.parse(model_file)
+        worldbody = tree.find(".//worldbody")
 
-    def get_current_obs(self):
-        return np.concatenate([
-            self.model.data.qpos.flat,
-            self.model.data.qvel.flat,
-            np.clip(self.model.data.cfrc_ext, -1, 1).flat,
-            self.get_body_xmat("torso").flat,
-            self.get_body_com("torso"),
-        ]).reshape(-1)
+        self.MAZE_HEIGHT = height = maze_height
+        self.MAZE_SIZE_SCALING = size_scaling = maze_size_scaling
+        self.MAZE_STRUCTURE = structure = construct_maze(maze_id=5)
 
-    def step(self, action):
-        self.forward_dynamics(action)
-        comvel = self.get_body_comvel("torso")
-        forward_reward = comvel[0]
-        lb, ub = self.action_bounds
-        scaling = (ub - lb) * 0.5
-        ctrl_cost = 0.5 * 1e-2 * np.sum(np.square(action / scaling))
+        torso_x, torso_y = self._find_robot()
+        self._init_torso_x = torso_x
+        self._init_torso_y = torso_y
+
+        for i in range(len(structure)):
+            for j in range(len(structure[0])):
+                if str(structure[i][j]) == '1':
+                    # offset all coordinates so that robot starts at the origin
+                    ET.SubElement(
+                        worldbody, "geom",
+                        name="block_%d_%d" % (i, j),
+                        pos="%f %f %f" % (j * size_scaling - torso_x,
+                                          i * size_scaling - torso_y,
+                                          height / 2 * size_scaling),
+                        size="%f %f %f" % (0.5 * size_scaling,
+                                           0.5 * size_scaling,
+                                           height / 2 * size_scaling),
+                        type="box",
+                        material="",
+                        contype="1",
+                        conaffinity="1",
+                        rgba="0.4 0.4 0.4 1"
+                    )
+
+        torso = tree.find(".//body[@name='torso']")
+        geoms = torso.findall(".//geom")
+        for geom in geoms:
+            if 'name' not in geom.attrib:
+                raise Exception("Every geom of the torso must have a name "
+                                "defined")
+
+        _, file_path = tempfile.mkstemp(text=True)
+        tree.write(file_path) 
+        return file_path
+
+    def _step(self, a):
+        xposbefore = self.get_body_com("torso")[0]
+        self.do_simulation(a, self.frame_skip)
+        xposafter = self.get_body_com("torso")[0]
+        forward_reward = (xposafter - xposbefore)/self.dt
+        ctrl_cost = .5 * np.square(a).sum()
         contact_cost = 0.5 * 1e-3 * np.sum(
-            np.square(np.clip(self.model.data.cfrc_ext, -1, 1))),
-        survive_reward = 0.05
+            np.square(np.clip(self.model.data.cfrc_ext, -1, 1)))
+        survive_reward = 1.0
         reward = forward_reward - ctrl_cost - contact_cost + survive_reward
-        state = self._state
+        state = self.state_vector()
         notdone = np.isfinite(state).all() \
             and state[2] >= 0.2 and state[2] <= 1.0
         done = not notdone
-        ob = self.get_current_obs()
-        return Step(ob, float(reward), done)
+        ob = self._get_obs()
+        return ob, reward, done, dict(
+            reward_forward=forward_reward,
+            reward_ctrl=-ctrl_cost,
+            reward_contact=-contact_cost,
+            reward_survive=survive_reward)
 
-    @overrides
-    def get_ori(self):
-        ori = [0, 1, 0, 0]
-        rot = self.model.data.qpos[self.__class__.ORI_IND:self.__class__.ORI_IND + 4]  # take the quaternion
-        ori = q_mult(q_mult(rot, ori), q_inv(rot))[1:3]  # project onto x-y plane
-        ori = math.atan2(ori[1], ori[0])
-        return ori
+    def _get_obs(self):
+        return np.concatenate([
+            self.model.data.qpos.flat[2:],
+            self.model.data.qvel.flat,
+            np.clip(self.model.data.cfrc_ext, -1, 1).flat,
+        ])
 
-    @overrides
-    def log_diagnostics(self, paths):
-        progs = [
-            path["observations"][-1][-3] - path["observations"][0][-3]
-            for path in paths
-        ]
-        logger.record_tabular('AverageForwardProgress', np.mean(progs))
-        logger.record_tabular('MaxForwardProgress', np.max(progs))
-        logger.record_tabular('MinForwardProgress', np.min(progs))
-        logger.record_tabular('StdForwardProgress', np.std(progs))
+    def reset_model(self):
+        qpos = self.init_qpos + self.np_random.uniform(size=self.model.nq, low=-.1, high=.1)
+        qvel = self.init_qvel + self.np_random.randn(self.model.nv) * .1
+        self.set_state(qpos, qvel)
+        return self._get_obs()
 
+    def viewer_setup(self):
+        self.viewer.cam.distance = self.model.stat.extent * 0.5
+
+    def _find_robot(self):
+        structure = self.MAZE_STRUCTURE
+        size_scaling = self.MAZE_SIZE_SCALING
+        for i in range(len(structure)):
+            for j in range(len(structure[0])):
+                if structure[i][j] == 'r':
+                    return j * size_scaling, i * size_scaling
+        assert False
