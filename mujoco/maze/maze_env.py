@@ -4,19 +4,21 @@ import xml.etree.ElementTree as ET
 import math
 import numpy as np
 
-from rllab import spaces
+from gym import spaces
 from rllab.envs.base import Step
 from rllab.envs.proxy_env import ProxyEnv
 from rllab.envs.mujoco.maze.maze_env_utils import construct_maze
-from rllab.envs.mujoco.mujoco_env import MODEL_DIR, BIG
 from rllab.envs.mujoco.maze.maze_env_utils import ray_segment_intersect, point_distance
-from rllab.core.serializable import Serializable
-from rllab.misc.overrides import overrides
+# from rllab.misc.overrides import overrides
 
 from rllab.misc import logger
 
+import numpy as np
+from gym.envs.mujoco import mujoco_env
+from gym import utils
 
-class MazeEnv(ProxyEnv, Serializable):
+
+class MazeEnv(Mujoco):
     MODEL_CLASS = None
     ORI_IND = None
 
@@ -46,9 +48,7 @@ class MazeEnv(ProxyEnv, Serializable):
             goal_rew=1.,  # reward obtained when reaching the goal
             *args,
             **kwargs):
-        Serializable.quick_init(self, locals())
 
-        Serializable.quick_init(self, locals())
         self._n_bins = n_bins
         self._sensor_range = sensor_range
         self._sensor_span = sensor_span
@@ -60,6 +60,7 @@ class MazeEnv(ProxyEnv, Serializable):
         model_cls = self.__class__.MODEL_CLASS
         if model_cls is None:
             raise "MODEL_CLASS unspecified!"
+
         xml_path = osp.join(MODEL_DIR, model_cls.FILE)
         tree = ET.parse(xml_path)
         worldbody = tree.find(".//worldbody")
@@ -120,11 +121,15 @@ class MazeEnv(ProxyEnv, Serializable):
         self._cached_segments = None
 
         inner_env = model_cls(*args, file_path=file_path, **kwargs)  # file to the robot specifications
-        ProxyEnv.__init__(self, inner_env)  # here is where the robot env will be initialized
+        # TODO init robotenv
+
+        # ProxyEnv.__init__(self, inner_env)  # here is where the robot env will be initialized
 
     def get_current_maze_obs(self):
         # The observation would include both information about the robot itself as well as the sensors around its
         # environment
+
+        # TODO fix this
         robot_x, robot_y = self.wrapped_env.get_body_com("torso")[:2]
         ori = self.get_ori()
 
@@ -278,15 +283,7 @@ class MazeEnv(ProxyEnv, Serializable):
         return False
 
     def step(self, action):
-        if self.MANUAL_COLLISION:
-            old_pos = self.wrapped_env.get_xy()
-            inner_next_obs, inner_rew, done, info = self.wrapped_env.step(action)
-            new_pos = self.wrapped_env.get_xy()
-            if self._is_in_collision(new_pos):
-                self.wrapped_env.set_xy(old_pos)
-                done = False
-        else:
-            inner_next_obs, inner_rew, done, info = self.wrapped_env.step(action)
+        inner_next_obs, inner_rew, done, info = self.wrapped_env.step(action)
         next_obs = self.get_current_obs()
         x, y = self.wrapped_env.get_body_com("torso")[:2]
         # ref_x = x + self._init_torso_x

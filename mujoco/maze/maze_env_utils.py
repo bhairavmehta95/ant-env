@@ -233,6 +233,7 @@ def plot_ray(self, reading, ray_idx, color='r'):
 
     ax.xaxis.set(ticks=2 * np.arange(len(x_labels)), ticklabels=x_labels)
     ax.yaxis.set(ticks=2 * np.arange(len(y_labels)), ticklabels=y_labels)
+    # TODO make utility function
     robot_xy = np.array(self.wrapped_env.get_body_com("torso")[:2])  # the coordinates of this are wrt the init!!
     ori = self.get_ori()  # for Ant this is computed with atan2, which gives [-pi, pi]
 
@@ -263,86 +264,86 @@ def plot_ray(self, reading, ray_idx, color='r'):
     # plt.close()
 
 
-def plot_state(self, name='sensors', state=None):
-    if state:
-        self.wrapped_env.reset(state)
+# def plot_state(self, name='sensors', state=None):
+#     if state:
+#         self.wrapped_env.reset(state)
 
-    structure = self.__class__.MAZE_STRUCTURE
-    size_scaling = self.__class__.MAZE_SIZE_SCALING
-    # duplicate cells to plot the maze
-    structure_plot = np.zeros(((len(structure) - 1) * 2, (len(structure[0]) - 1) * 2))
-    for i in range(len(structure)):
-        for j in range(len(structure[0])):
-            cell = structure[i][j]
-            if type(cell) is not int:
-                cell = 0.3 if cell == 'r' else 0.7
-            if i == 0:
-                if j == 0:
-                    structure_plot[i, j] = cell
-                elif j == len(structure[0]) - 1:
-                    structure_plot[i, 2 * j - 1] = cell
-                else:
-                    structure_plot[i, 2 * j - 1:2 * j + 1] = cell
-            elif i == len(structure) - 1:
-                if j == 0:
-                    structure_plot[2 * i - 1, j] = cell
-                elif j == len(structure[0]) - 1:
-                    structure_plot[2 * i - 1, 2 * j - 1] = cell
-                else:
-                    structure_plot[2 * i - 1, 2 * j - 1:2 * j + 1] = cell
-            else:
-                if j == 0:
-                    structure_plot[2 * i - 1:2 * i + 1, j] = cell
-                elif j == len(structure[0]) - 1:
-                    structure_plot[2 * i - 1:2 * i + 1, 2 * j - 1] = cell
-                else:
-                    structure_plot[2 * i - 1:2 * i + 1, 2 * j - 1:2 * j + 1] = cell
+#     structure = self.__class__.MAZE_STRUCTURE
+#     size_scaling = self.__class__.MAZE_SIZE_SCALING
+#     # duplicate cells to plot the maze
+#     structure_plot = np.zeros(((len(structure) - 1) * 2, (len(structure[0]) - 1) * 2))
+#     for i in range(len(structure)):
+#         for j in range(len(structure[0])):
+#             cell = structure[i][j]
+#             if type(cell) is not int:
+#                 cell = 0.3 if cell == 'r' else 0.7
+#             if i == 0:
+#                 if j == 0:
+#                     structure_plot[i, j] = cell
+#                 elif j == len(structure[0]) - 1:
+#                     structure_plot[i, 2 * j - 1] = cell
+#                 else:
+#                     structure_plot[i, 2 * j - 1:2 * j + 1] = cell
+#             elif i == len(structure) - 1:
+#                 if j == 0:
+#                     structure_plot[2 * i - 1, j] = cell
+#                 elif j == len(structure[0]) - 1:
+#                     structure_plot[2 * i - 1, 2 * j - 1] = cell
+#                 else:
+#                     structure_plot[2 * i - 1, 2 * j - 1:2 * j + 1] = cell
+#             else:
+#                 if j == 0:
+#                     structure_plot[2 * i - 1:2 * i + 1, j] = cell
+#                 elif j == len(structure[0]) - 1:
+#                     structure_plot[2 * i - 1:2 * i + 1, 2 * j - 1] = cell
+#                 else:
+#                     structure_plot[2 * i - 1:2 * i + 1, 2 * j - 1:2 * j + 1] = cell
 
-    fig, ax = plt.subplots()
-    im = ax.pcolor(-np.array(structure_plot), cmap='gray', edgecolor='black', linestyle=':', lw=1)
-    x_labels = list(range(len(structure[0])))
-    y_labels = list(range(len(structure)))
-    ax.grid(True)  # elimiate this to avoid inner lines
+#     fig, ax = plt.subplots()
+#     im = ax.pcolor(-np.array(structure_plot), cmap='gray', edgecolor='black', linestyle=':', lw=1)
+#     x_labels = list(range(len(structure[0])))
+#     y_labels = list(range(len(structure)))
+#     ax.grid(True)  # elimiate this to avoid inner lines
 
-    ax.xaxis.set(ticks=2 * np.arange(len(x_labels)), ticklabels=x_labels)
-    ax.yaxis.set(ticks=2 * np.arange(len(y_labels)), ticklabels=y_labels)
+#     ax.xaxis.set(ticks=2 * np.arange(len(x_labels)), ticklabels=x_labels)
+#     ax.yaxis.set(ticks=2 * np.arange(len(y_labels)), ticklabels=y_labels)
 
-    obs = self.get_current_maze_obs()
+#     obs = self.get_current_maze_obs()
 
-    robot_xy = np.array(self.wrapped_env.get_body_com("torso")[:2])  # the coordinates of this are wrt the init
-    ori = self.get_ori()  # for Ant this is computed with atan2, which gives [-pi, pi]
+#     robot_xy = np.array(self.wrapped_env.get_body_com("torso")[:2])  # the coordinates of this are wrt the init
+#     ori = self.get_ori()  # for Ant this is computed with atan2, which gives [-pi, pi]
 
-    # compute origin cell i_o, j_o coordinates and center of it x_o, y_o (with 0,0 in the top-right corner of struc)
-    o_xy = np.array(self._find_robot())  # this is self.init_torso_x, self.init_torso_y: center of the cell xy!
-    o_ij = (o_xy / size_scaling).astype(int)  # this is the position in the grid
+#     # compute origin cell i_o, j_o coordinates and center of it x_o, y_o (with 0,0 in the top-right corner of struc)
+#     o_xy = np.array(self._find_robot())  # this is self.init_torso_x, self.init_torso_y: center of the cell xy!
+#     o_ij = (o_xy / size_scaling).astype(int)  # this is the position in the grid
 
-    o_xy_plot = o_xy / size_scaling * 2
-    robot_xy_plot = o_xy_plot + robot_xy / size_scaling * 2
+#     o_xy_plot = o_xy / size_scaling * 2
+#     robot_xy_plot = o_xy_plot + robot_xy / size_scaling * 2
 
-    plt.scatter(*robot_xy_plot)
+#     plt.scatter(*robot_xy_plot)
 
-    for ray_idx in range(self._n_bins):
-        length_wall = self._sensor_range - obs[ray_idx] * self._sensor_range if obs[ray_idx] else 1e-6
-        ray_ori = ori - self._sensor_span * 0.5 + ray_idx / (self._n_bins - 1) * self._sensor_span
-        if ray_ori > math.pi:
-            ray_ori -= 2 * math.pi
-        elif ray_ori < - math.pi:
-            ray_ori += 2 * math.pi
-        # find the end point wall
-        end_xy = (robot_xy + length_wall * np.array([math.cos(ray_ori), math.sin(ray_ori)]))
-        end_xy_plot = (o_ij + end_xy / size_scaling) * 2
-        plt.plot([robot_xy_plot[0], end_xy_plot[0]], [robot_xy_plot[1], end_xy_plot[1]], 'r')
+#     for ray_idx in range(self._n_bins):
+#         length_wall = self._sensor_range - obs[ray_idx] * self._sensor_range if obs[ray_idx] else 1e-6
+#         ray_ori = ori - self._sensor_span * 0.5 + ray_idx / (self._n_bins - 1) * self._sensor_span
+#         if ray_ori > math.pi:
+#             ray_ori -= 2 * math.pi
+#         elif ray_ori < - math.pi:
+#             ray_ori += 2 * math.pi
+#         # find the end point wall
+#         end_xy = (robot_xy + length_wall * np.array([math.cos(ray_ori), math.sin(ray_ori)]))
+#         end_xy_plot = (o_ij + end_xy / size_scaling) * 2
+#         plt.plot([robot_xy_plot[0], end_xy_plot[0]], [robot_xy_plot[1], end_xy_plot[1]], 'r')
 
-        length_goal = self._sensor_range - obs[ray_idx + self._n_bins] * self._sensor_range if obs[
-            ray_idx + self._n_bins] else 1e-6
-        ray_ori = ori - self._sensor_span * 0.5 + ray_idx / (self._n_bins - 1) * self._sensor_span
-        # find the end point goal
-        end_xy = (robot_xy + length_goal * np.array([math.cos(ray_ori), math.sin(ray_ori)]))
-        end_xy_plot = (o_ij + end_xy / size_scaling) * 2
-        plt.plot([robot_xy_plot[0], end_xy_plot[0]], [robot_xy_plot[1], end_xy_plot[1]], 'g')
+#         length_goal = self._sensor_range - obs[ray_idx + self._n_bins] * self._sensor_range if obs[
+#             ray_idx + self._n_bins] else 1e-6
+#         ray_ori = ori - self._sensor_span * 0.5 + ray_idx / (self._n_bins - 1) * self._sensor_span
+#         # find the end point goal
+#         end_xy = (robot_xy + length_goal * np.array([math.cos(ray_ori), math.sin(ray_ori)]))
+#         end_xy_plot = (o_ij + end_xy / size_scaling) * 2
+#         plt.plot([robot_xy_plot[0], end_xy_plot[0]], [robot_xy_plot[1], end_xy_plot[1]], 'g')
 
-    log_dir = logger.get_snapshot_dir()
-    ax.set_title('sensors: ' + name)
+#     log_dir = logger.get_snapshot_dir()
+#     ax.set_title('sensors: ' + name)
 
-    plt.savefig(osp.join(log_dir, name + '_sesors.png'))  # this saves the current figure, here f
-    plt.close()
+#     plt.savefig(osp.join(log_dir, name + '_sesors.png'))  # this saves the current figure, here f
+#     plt.close()
