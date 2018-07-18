@@ -1,40 +1,37 @@
-import math
-import os.path as osp
+import os, sys
+import numpy as np
 import tempfile
 import xml.etree.ElementTree as ET
+import math
 from ctypes import byref
-import numpy as np
 
-from rllab.misc import logger
-from rllab import spaces
-from rllab.core.serializable import Serializable
-from rllab.envs.proxy_env import ProxyEnv
-from rllab.envs.base import Step
-from rllab.envs.mujoco.gather.embedded_viewer import EmbeddedViewer
-from rllab.envs.mujoco.mujoco_env import MODEL_DIR, BIG
-from rllab.misc import autoargs
-from rllab.misc.overrides import overrides
-from rllab.mujoco_py import MjViewer, MjModel, mjcore, mjlib, \
+from mujoco_py import MjViewer, MjModel, mjcore, mjlib, \
     mjextra, glfw
+from mujoco_py.mjlib import mjlib
+
+from envs.ant_env import AntEnv
+from utils.maze_utils import construct_maze
+from utils.embedded_viewer import EmbeddedViewer
 
 APPLE = 0
 BOMB = 1
 
+MODEL_DIR = os.path.abspath('assets')
 
 class GatherViewer(MjViewer):
     def __init__(self, env):
         self.env = env
         super(GatherViewer, self).__init__()
-        green_ball_model = MjModel(osp.abspath(
-            osp.join(
+        green_ball_model = MjModel(os.path.abspath(
+            os.path.join(
                 MODEL_DIR, 'green_ball.xml'
             )
         ))
         self.green_ball_renderer = EmbeddedViewer()
         self.green_ball_model = green_ball_model
         self.green_ball_renderer.set_model(green_ball_model)
-        red_ball_model = MjModel(osp.abspath(
-            osp.join(
+        red_ball_model = MjModel(os.path.abspath(
+            os.path.join(
                 MODEL_DIR, 'red_ball.xml'
             )
         ))
@@ -47,20 +44,14 @@ class GatherViewer(MjViewer):
         self.green_ball_renderer.start(self.window)
         self.red_ball_renderer.start(self.window)
 
-    def handle_mouse_move(self, window, xpos, ypos):
-        super(GatherViewer, self).handle_mouse_move(window, xpos, ypos)
-        self.green_ball_renderer.handle_mouse_move(window, xpos, ypos)
-        self.red_ball_renderer.handle_mouse_move(window, xpos, ypos)
-
-    def handle_scroll(self, window, x_offset, y_offset):
-        super(GatherViewer, self).handle_scroll(window, x_offset, y_offset)
-        self.green_ball_renderer.handle_scroll(window, x_offset, y_offset)
-        self.red_ball_renderer.handle_scroll(window, x_offset, y_offset)
+    def stop_viewer(self):
+        if self.env.viewer:
+            self.env.viewer.finish()
 
     def render(self):
         super(GatherViewer, self).render()
         tmpobjects = mjcore.MJVOBJECTS()
-        mjlib.mjlib.mjv_makeObjects(byref(tmpobjects), 1000)
+        mjlib.mjv_makeObjects(byref(tmpobjects), 1000)
         for obj in self.env.objects:
             x, y, typ = obj
             # print x, y
@@ -80,9 +71,9 @@ class GatherViewer(MjViewer):
                 mjextra.append_objects(
                     tmpobjects, self.red_ball_renderer.objects)
         mjextra.append_objects(tmpobjects, self.objects)
-        mjlib.mjlib.mjv_makeLights(
+        mjlib.mjv_makeLights(
             self.model.ptr, self.data.ptr, byref(tmpobjects))
-        mjlib.mjlib.mjr_render(0, self.get_rect(), byref(tmpobjects), byref(
+        mjlib.mjr_render(0, self.get_rect(), byref(tmpobjects), byref(
             self.ropt), byref(self.cam.pose), byref(self.con))
 
         try:
@@ -130,31 +121,8 @@ class GatherViewer(MjViewer):
                 GL.glColor4f(1.0, 0.0, 0.0, reading)
                 draw_rect(20 * (idx + 1), 60, 5, 50)
 
-
-class GatherEnv(ProxyEnv, Serializable):
-    MODEL_CLASS = None
-    ORI_IND = None
-
-    @autoargs.arg('n_apples', type=int,
-                  help='Number of apples in each episode')
-    @autoargs.arg('n_bombs', type=int,
-                  help='Number of bombs in each episode')
-    @autoargs.arg('activity_range', type=float,
-                  help='The span for generating objects '
-                       '(x, y in [-range, range])')
-    @autoargs.arg('robot_object_spacing', type=float,
-                  help='Number of objects in each episode')
-    @autoargs.arg('catch_range', type=float,
-                  help='Minimum distance range to catch an object')
-    @autoargs.arg('n_bins', type=float,
-                  help='Number of objects in each episode')
-    @autoargs.arg('sensor_range', type=float,
-                  help='Maximum sensor range (how far it can go)')
-    @autoargs.arg('sensor_span', type=float,
-                  help='Maximum sensor span (how wide it can span), in '
-                       'radians')
-    def __init__(
-            self,
+class AntGatherEnv(AntEnv):
+    def __init__(self,
             n_apples=8,
             n_bombs=8,
             activity_range=6.,
@@ -167,7 +135,7 @@ class GatherEnv(ProxyEnv, Serializable):
             dying_cost=-10,
             *args, **kwargs
     ):
-        Serializable.quick_init(self, locals())
+
         self.n_apples = n_apples
         self.n_bombs = n_bombs
         self.activity_range = activity_range
@@ -179,13 +147,19 @@ class GatherEnv(ProxyEnv, Serializable):
         self.coef_inner_rew = coef_inner_rew
         self.dying_cost = dying_cost
         self.objects = []
-        self.viewer = None
-        # super(GatherEnv, self).__init__(*args, **kwargs)
-        model_cls = self.__class__.MODEL_CLASS
-        if model_cls is None:
-            raise "MODEL_CLASS unspecified!"
-        xml_path = osp.join(MODEL_DIR, model_cls.FILE)
-        tree = ET.parse(xml_path)
+
+        model_file = os.path.abspath(
+            os.path.join(
+                MODEL_DIR, 'ant.xml'
+            )
+        )
+
+        file_path = self._load_env(model_file)
+
+        super(AntGatherEnv, self).__init__(file_path=file_path)
+
+    def _load_env(self, model_file):
+        tree = ET.parse(model_file)
         worldbody = tree.find(".//worldbody")
         attrs = dict(
             type="box", conaffinity="1", rgba="0.8 0.9 0.8 1", condim="3"
@@ -217,10 +191,8 @@ class GatherEnv(ProxyEnv, Serializable):
                 size="0.5 %d.5 1" % walldist))
         _, file_path = tempfile.mkstemp(text=True)
         tree.write(file_path)
-        # pylint: disable=not-callable
-        inner_env = model_cls(*args, file_path=file_path, **kwargs)
-        # pylint: enable=not-callable
-        ProxyEnv.__init__(self, inner_env)  # to access the inner env, do self.wrapped_env
+
+        return file_path
 
     def reset(self, also_wrapped=True):
         self.objects = []
@@ -252,42 +224,32 @@ class GatherEnv(ProxyEnv, Serializable):
             self.objects.append((x, y, typ))
             existing.add((x, y))
 
-        if also_wrapped:
-            self.wrapped_env.reset()
-        return self.get_current_obs()
+        super(AntEnv, self).reset()
+        
+        return self.get_full_obs()
 
-    def step(self, action):
-        _, inner_rew, done, info = self.wrapped_env.step(action)
-        info['inner_rew'] = inner_rew
-        info['outer_rew'] = 0
-        if done:
-            return Step(self.get_current_obs(), self.dying_cost, done, **info)  # give a -10 rew if the robot dies
-        com = self.wrapped_env.get_body_com("torso")
-        x, y = com[:2]
-        reward = self.coef_inner_rew * inner_rew
-        new_objs = []
-        for obj in self.objects:
-            ox, oy, typ = obj
-            # object within zone!
-            if (ox - x) ** 2 + (oy - y) ** 2 < self.catch_range ** 2:
-                if typ == APPLE:
-                    reward = reward + 1
-                    info['outer_rew'] = 1
-                else:
-                    reward = reward - 1
-                    info['outer_rew'] = -1
-            else:
-                new_objs.append(obj)
-        self.objects = new_objs
-        done = len(self.objects) == 0
-        return Step(self.get_current_obs(), reward, done, **info)
+    def get_full_obs(self):
+        obs = np.concatenate([
+            self._get_obs(),
+            np.array([self.get_readings()]).flatten()
+        ])
+
+        return obs
+
+    def get_viewer(self):
+        if self.viewer is None:
+            self.viewer = GatherViewer(self)
+            self.viewer.start()
+            self.viewer.set_model(self.model)
+        return self.viewer
+
 
     def get_readings(self):  # equivalent to get_current_maze_obs in maze_env.py
         # compute sensor readings
         # first, obtain current orientation
         apple_readings = np.zeros(self.n_bins)
         bomb_readings = np.zeros(self.n_bins)
-        robot_x, robot_y = self.wrapped_env.get_body_com("torso")[:2]
+        robot_x, robot_y = self.get_body_com("torso")[:2]
         # sort objects by distance to the robot, so that farther objects'
         # signals will be occluded by the closer ones'
         sorted_objects = sorted(
@@ -296,7 +258,8 @@ class GatherEnv(ProxyEnv, Serializable):
         # fill the readings
         bin_res = self.sensor_span / self.n_bins
 
-        ori = self.get_ori()  # overwrite this for Ant!
+        # TODO: Find the qpos
+        ori = self.get_body_com("torso")[1]  # overwrite this for Ant!
 
         for ox, oy, typ in sorted_objects:
             # compute distance between object and robot
@@ -324,61 +287,30 @@ class GatherEnv(ProxyEnv, Serializable):
                 bomb_readings[bin_number] = intensity
         return apple_readings, bomb_readings
 
-    def get_current_robot_obs(self):
-        return self.wrapped_env.get_current_obs()
 
-    def get_current_obs(self):
-        # return sensor data along with data about itself
-        self_obs = self.wrapped_env.get_current_obs()
-        apple_readings, bomb_readings = self.get_readings()
-        return np.concatenate([self_obs, apple_readings, bomb_readings])
+    def step(self, action):
+        self.do_simulation(action, self.frame_skip)
 
-    @property
-    @overrides
-    def observation_space(self):
-        shp = self.get_current_obs().shape
-        ub = BIG * np.ones(shp)
-        return spaces.Box(ub * -1, ub)
+        com = self.get_body_com("torso")
+        x, y = com[:2]
+        reward = 0
+        new_objs = []
 
-    # space of only the robot observations (they go first in the get current obs)
-    @property
-    def robot_observation_space(self):
-        shp = self.get_current_robot_obs().shape
-        ub = BIG * np.ones(shp)
-        return spaces.Box(ub * -1, ub)
+        for obj in self.objects:
+            ox, oy, typ = obj
+            # object within zone!
+            if (ox - x) ** 2 + (oy - y) ** 2 < self.catch_range ** 2:
+                if typ == APPLE:
+                    reward = reward + 1
+                else:
+                    reward = reward - 1
+            else:
+                new_objs.append(obj)
 
-    @property
-    def maze_observation_space(self):
-        shp = np.concatenate(self.get_readings()).shape
-        ub = BIG * np.ones(shp)
-        return spaces.Box(ub * -1, ub)
-
-    @property
-    @overrides
-    def action_space(self):
-        return self.wrapped_env.action_space
-
-    @property
-    def action_bounds(self):
-        return self.wrapped_env.action_bounds
-
-    # @property
-    # def viewer(self):
-    #     return self.wrapped_env.viewer
-
-    def action_from_key(self, key):
-        return self.wrapped_env.action_from_key(key)
-
-    def get_viewer(self):
-        if self.wrapped_env.viewer is None:
-            self.wrapped_env.viewer = GatherViewer(self)
-            self.wrapped_env.viewer.start()
-            self.wrapped_env.viewer.set_model(self.wrapped_env.model)
-        return self.wrapped_env.viewer
-
-    def stop_viewer(self):
-        if self.wrapped_env.viewer:
-            self.wrapped_env.viewer.finish()
+        self.objects = new_objs
+        done = len(self.objects) == 0
+        
+        return self.get_full_obs(), reward, done, None
 
     def render(self, mode='human', close=False):
         if mode == 'rgb_array':
@@ -386,46 +318,8 @@ class GatherEnv(ProxyEnv, Serializable):
             data, width, height = self.get_viewer().get_image()
             return np.fromstring(data, dtype='uint8').reshape(height, width, 3)[::-1,:,:]
         elif mode == 'human':
-            self.get_viewer()
-            self.wrapped_env.render()
+            self.get_viewer().loop_once()
         if close:
-            self.stop_viewer()
-
-    def get_ori(self):
-        """
-        First it tries to use a get_ori from the wrapped env. If not successfull, falls
-        back to the default based on the ORI_IND specified in Maze (not accurate for quaternions)
-        """
-        obj = self.wrapped_env
-        while not hasattr(obj, 'get_ori') and hasattr(obj, 'wrapped_env'):
-            obj = obj.wrapped_env
-        try:
-            return obj.get_ori()
-        except (NotImplementedError, AttributeError) as e:
-            pass
-        return self.wrapped_env.model.data.qpos[self.__class__.ORI_IND]
-
-    @overrides
-    def log_diagnostics(self, paths, log_prefix='Gather', *args, **kwargs):
-        # we call here any logging related to the gather, strip the maze obs and call log_diag with the stripped paths
-        # we need to log the purely gather reward!!
-        with logger.tabular_prefix(log_prefix + '_'):
-            gather_undiscounted_returns = [sum(path['env_infos']['outer_rew']) for path in paths]
-            logger.record_tabular_misc_stat('Return', gather_undiscounted_returns, placement='front')
-        stripped_paths = []
-        for path in paths:
-            stripped_path = {}
-            for k, v in path.items():
-                stripped_path[k] = v
-            stripped_path['observations'] = \
-                stripped_path['observations'][:, :self.wrapped_env.observation_space.flat_dim]
-            #  this breaks if the obs of the robot are d>1 dimensional (not a vector)
-            stripped_paths.append(stripped_path)
-        with logger.tabular_prefix('wrapped_'):
-            if 'env_infos' in paths[0].keys() and 'inner_rew' in paths[0]['env_infos'].keys():
-                wrapped_undiscounted_return = np.mean([np.sum(path['env_infos']['inner_rew']) for path in paths])
-                logger.record_tabular('AverageReturn', wrapped_undiscounted_return)
-            self.wrapped_env.log_diagnostics(stripped_paths)  # see swimmer_env.py for a scketch of the maze plotting!
-
+            self.get_viewer().stop_viewer()
 
 

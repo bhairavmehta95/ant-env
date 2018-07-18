@@ -3,16 +3,22 @@ import numpy as np
 import tempfile
 import xml.etree.ElementTree as ET
 
-from maze_utils import construct_maze
+from envs.ant_env import AntEnv
+from utils.maze_utils import construct_maze
 
-from ant_env import AntEnv
 
+MODEL_DIR = os.path.abspath('assets')
 
 class AntMazeEnv(AntEnv):
     def __init__(self):
         sys.path.append(os.path.dirname(__file__))
         
-        model_file = '/home/bhairav/coding/ant-env/models/ant.xml'
+        model_file = os.path.abspath(
+            os.path.join(
+                MODEL_DIR, 'ant.xml'
+            )
+        )
+
         file_path = self._load_maze(model_file)
 
         super(AntMazeEnv, self).__init__(file_path=file_path)
@@ -24,7 +30,7 @@ class AntMazeEnv(AntEnv):
 
         self.MAZE_HEIGHT = height = maze_height
         self.MAZE_SIZE_SCALING = size_scaling = maze_size_scaling
-        self.MAZE_STRUCTURE = structure = construct_maze(maze_id=5)
+        self.MAZE_STRUCTURE = structure = construct_maze(maze_id=np.random.randint(0,10))
 
         torso_x, torso_y = self._find_robot()
         self._init_torso_x = torso_x
