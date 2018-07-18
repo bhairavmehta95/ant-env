@@ -156,7 +156,7 @@ class AntGatherEnv(AntEnv):
 
         file_path = self._load_env(model_file)
 
-        super(AntGatherEnv, self).__init__(file_path=file_path)
+        super(AntGatherEnv, self).__init__(file_path=file_path, ori_idx=6)
 
     def _load_env(self, model_file):
         tree = ET.parse(model_file)
@@ -258,8 +258,7 @@ class AntGatherEnv(AntEnv):
         # fill the readings
         bin_res = self.sensor_span / self.n_bins
 
-        # TODO: Find the qpos
-        ori = self.get_body_com("torso")[1]  # overwrite this for Ant!
+        ori = self.get_ori()  # overwrite this for Ant!
 
         for ox, oy, typ in sorted_objects:
             # compute distance between object and robot

@@ -19,3 +19,4 @@ if __name__ == '__main__':
 ## ToDo
 * Double Check Reward Functions
 * Fix Observations for both
+* Reward and Terminal Functions
