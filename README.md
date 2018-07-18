@@ -15,3 +15,7 @@ if __name__ == '__main__':
         obs, r, done, _ = env.step(env.action_space.sample())
         env.render()
 ```
+
+## ToDo
+* Double Check Reward Functions
+* Fix Observations for both
