@@ -121,19 +121,20 @@ class GatherViewer(MjViewer):
                 GL.glColor4f(1.0, 0.0, 0.0, reading)
                 draw_rect(20 * (idx + 1), 60, 5, 50)
 
+
 class AntGatherEnv(AntEnv):
     def __init__(self,
             n_apples=8,
             n_bombs=8,
-            activity_range=6.,
+            activity_range=10.,
             robot_object_spacing=2.,
             catch_range=1.,
             n_bins=10,
             sensor_range=6.,
-            sensor_span=math.pi,
+            sensor_span=2*math.pi,
             coef_inner_rew=0.,
             dying_cost=-10,
-            *args, **kwargs
+            max_steps=500
     ):
 
         self.n_apples = n_apples
@@ -147,6 +148,7 @@ class AntGatherEnv(AntEnv):
         self.coef_inner_rew = coef_inner_rew
         self.dying_cost = dying_cost
         self.objects = []
+        self.max_steps = max_steps
 
         model_file = os.path.abspath(
             os.path.join(
@@ -158,43 +160,37 @@ class AntGatherEnv(AntEnv):
 
         super(AntGatherEnv, self).__init__(file_path=file_path, ori_idx=6)
 
-    def _load_env(self, model_file):
-        tree = ET.parse(model_file)
-        worldbody = tree.find(".//worldbody")
-        attrs = dict(
-            type="box", conaffinity="1", rgba="0.8 0.9 0.8 1", condim="3"
-        )
-        walldist = self.activity_range + 1
-        ET.SubElement(
-            worldbody, "geom", dict(
-                attrs,
-                name="wall1",
-                pos="0 -%d 0" % walldist,
-                size="%d.5 0.5 1" % walldist))
-        ET.SubElement(
-            worldbody, "geom", dict(
-                attrs,
-                name="wall2",
-                pos="0 %d 0" % walldist,
-                size="%d.5 0.5 1" % walldist))
-        ET.SubElement(
-            worldbody, "geom", dict(
-                attrs,
-                name="wall3",
-                pos="-%d 0 0" % walldist,
-                size="0.5 %d.5 1" % walldist))
-        ET.SubElement(
-            worldbody, "geom", dict(
-                attrs,
-                name="wall4",
-                pos="%d 0 0" % walldist,
-                size="0.5 %d.5 1" % walldist))
-        _, file_path = tempfile.mkstemp(text=True)
-        tree.write(file_path)
 
-        return file_path
+    def step(self, action):
+        self.do_simulation(action, self.frame_skip)
+        self.step_count = 0
 
-    def reset(self, also_wrapped=True):
+        com = self.get_body_com("torso")
+        x, y = com[:2]
+        reward = 0
+        new_objs = []
+
+        for obj in self.objects:
+            ox, oy, typ = obj
+            # object within zone!
+            if (ox - x) ** 2 + (oy - y) ** 2 < self.catch_range ** 2:
+                if typ == APPLE:
+                    reward = reward + 1
+                else:
+                    reward = reward - 1
+            else:
+                new_objs.append(obj)
+
+        self.objects = new_objs
+        state = self.state_vector()
+        done = self._calculate_terminal(state)
+        
+        return self.get_current_obs(), reward, done, None
+
+
+    def reset(self):
+        self.step_count = 0
+
         self.objects = []
         existing = set()
         while len(self.objects) < self.n_apples:
@@ -226,22 +222,18 @@ class AntGatherEnv(AntEnv):
 
         super(AntEnv, self).reset()
         
-        return self.get_full_obs()
+        return self.get_current_obs()
 
-    def get_full_obs(self):
-        obs = np.concatenate([
-            self._get_obs(),
-            np.array([self.get_readings()]).flatten()
-        ])
 
-        return obs
-
-    def get_viewer(self):
-        if self.viewer is None:
-            self.viewer = GatherViewer(self)
-            self.viewer.start()
-            self.viewer.set_model(self.model)
-        return self.viewer
+    def render(self, mode='human', close=False):
+        if mode == 'rgb_array':
+            self.get_viewer().render()
+            data, width, height = self.get_viewer().get_image()
+            return np.fromstring(data, dtype='uint8').reshape(height, width, 3)[::-1,:,:]
+        elif mode == 'human':
+            self.get_viewer().loop_once()
+        if close:
+            self.get_viewer().stop_viewer()
 
 
     def get_readings(self):  # equivalent to get_current_maze_obs in maze_env.py
@@ -287,38 +279,62 @@ class AntGatherEnv(AntEnv):
         return apple_readings, bomb_readings
 
 
-    def step(self, action):
-        self.do_simulation(action, self.frame_skip)
+    def get_current_obs(self):
+        obs = np.concatenate([
+            self._get_obs(),
+            np.array([self.get_readings()]).flatten()
+        ])
 
-        com = self.get_body_com("torso")
-        x, y = com[:2]
-        reward = 0
-        new_objs = []
-
-        for obj in self.objects:
-            ox, oy, typ = obj
-            # object within zone!
-            if (ox - x) ** 2 + (oy - y) ** 2 < self.catch_range ** 2:
-                if typ == APPLE:
-                    reward = reward + 1
-                else:
-                    reward = reward - 1
-            else:
-                new_objs.append(obj)
-
-        self.objects = new_objs
-        done = len(self.objects) == 0
-        
-        return self.get_full_obs(), reward, done, None
-
-    def render(self, mode='human', close=False):
-        if mode == 'rgb_array':
-            self.get_viewer().render()
-            data, width, height = self.get_viewer().get_image()
-            return np.fromstring(data, dtype='uint8').reshape(height, width, 3)[::-1,:,:]
-        elif mode == 'human':
-            self.get_viewer().loop_once()
-        if close:
-            self.get_viewer().stop_viewer()
+        return obs
 
 
+    def get_viewer(self):
+        if self.viewer is None:
+            self.viewer = GatherViewer(self)
+            self.viewer.start()
+            self.viewer.set_model(self.model)
+        return self.viewer
+
+
+    def _load_env(self, model_file):
+        tree = ET.parse(model_file)
+        worldbody = tree.find(".//worldbody")
+        attrs = dict(
+            type="box", conaffinity="1", rgba="0.8 0.9 0.8 1", condim="3"
+        )
+        walldist = self.activity_range + 1
+        ET.SubElement(
+            worldbody, "geom", dict(
+                attrs,
+                name="wall1",
+                pos="0 -%d 0" % walldist,
+                size="%d.5 0.5 1" % walldist))
+        ET.SubElement(
+            worldbody, "geom", dict(
+                attrs,
+                name="wall2",
+                pos="0 %d 0" % walldist,
+                size="%d.5 0.5 1" % walldist))
+        ET.SubElement(
+            worldbody, "geom", dict(
+                attrs,
+                name="wall3",
+                pos="-%d 0 0" % walldist,
+                size="0.5 %d.5 1" % walldist))
+        ET.SubElement(
+            worldbody, "geom", dict(
+                attrs,
+                name="wall4",
+                pos="%d 0 0" % walldist,
+                size="0.5 %d.5 1" % walldist))
+        _, file_path = tempfile.mkstemp(text=True)
+        tree.write(file_path)
+
+        return file_path
+
+
+    def _calculate_terminal(self, state):
+        return len(self.objects) == 0 or \
+            self.step_count > self.max_steps or \
+            not np.isfinite(state).any() \
+            or state[2] >= 0.2 or state[2] <= 1.0

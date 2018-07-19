@@ -2,6 +2,10 @@ import numpy as np
 from gym import utils
 from gym.envs.mujoco import mujoco_env
 import gym
+import math
+
+from utils.mujoco_utils import q_mult, q_inv
+
 
 
 class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):

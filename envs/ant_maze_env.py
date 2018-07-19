@@ -4,7 +4,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 from envs.ant_env import AntEnv
-from utils.maze_utils import construct_maze
+from utils.maze_utils import construct_maze, ray_segment_intersect, point_distance
 
 
 MODEL_DIR = os.path.abspath('assets')
@@ -20,19 +20,53 @@ class AntMazeEnv(AntEnv):
         )
 
         file_path = self._load_maze(model_file)
+        self._goal_range = self._find_goal_range()
 
         super(AntMazeEnv, self).__init__(file_path=file_path, ori_idx=6)
+
+
+    def step(self, action):
+        self.do_simulation(action, self.frame_skip)
+        self.step_count += 1
+
+        ob = self.get_current_obs()
+        x, y = self.get_body_com("torso")[:2]
+
+        minx, maxx, miny, maxy = self._goal_range
+        reward = 0
+        done = False
+        if minx <= x <= maxx and miny <= y <= maxy:
+            done = True
+            reward = 1
+
+        done = self._calculate_terminal(reward)
+        return ob, reward, done, None
+
+
+    def reset(self):
+        self.step_count = 0
+        super(AntEnv, self).reset()
+
+
+    def get_current_obs(self):
+        obs = np.concatenate([
+            self._get_obs(),
+            np.array([self.get_current_maze_obs()]).flatten()
+        ])
+
+        return obs
 
 
     def get_current_maze_obs(self,
             n_bins=20,
             sensor_range=10.,
-            sensor_span=math.pi,
+            sensor_span=np.pi,
             maze_id=0,
             length=1,
             maze_height=0.5,
             maze_size_scaling=2,
             goal_rew=1.,
+            max_steps=500
     ):  
 
         self._n_bins = n_bins
@@ -41,8 +75,10 @@ class AntMazeEnv(AntEnv):
         self._maze_id = maze_id
         self.length = length
         self.goal_rew = goal_rew
+        self.step_count = 0
+        self.max_steps = max_steps
 
-        robot_x, robot_y = self.wrapped_env.get_body_com("torso")[:2]
+        robot_x, robot_y = self.get_body_com("torso")[:2]
         ori = self.get_ori()
 
         structure = self.MAZE_STRUCTURE
@@ -110,24 +146,7 @@ class AntMazeEnv(AntEnv):
         return obs
 
 
-    def step(self, action):
-        inner_next_obs, inner_rew, done, info = self.env.step(action)
-        next_obs = self.get_current_obs()
-        x, y = self.wrapped_env.get_body_com("torso")[:2]
-        # ref_x = x + self._init_torso_x
-        # ref_y = y + self._init_torso_y
-        info['outer_rew'] = 0
-        info['inner_rew'] = inner_rew
-        reward = self.coef_inner_rew * inner_rew
-        minx, maxx, miny, maxy = self._goal_range
-        if minx <= x <= maxx and miny <= y <= maxy:
-            done = True
-            reward += self.goal_rew
-            info['rew_rew'] = 1  # we keep here the original one, so that the AvgReturn is directly the freq of success
-        return Step(next_obs, reward, done, **info)
-
-
-    def _load_maze(self, model_file, maze_height=0.5, maze_size_scaling=2):
+    def _load_maze(self, model_file, maze_height=0.5, maze_size_scaling=8):
         tree = ET.parse(model_file)
         worldbody = tree.find(".//worldbody")
 
@@ -170,6 +189,7 @@ class AntMazeEnv(AntEnv):
         tree.write(file_path) 
         return file_path
 
+
     def _find_robot(self):
         structure = self.MAZE_STRUCTURE
         size_scaling = self.MAZE_SIZE_SCALING
@@ -177,3 +197,21 @@ class AntMazeEnv(AntEnv):
             for j in range(len(structure[0])):
                 if structure[i][j] == 'r':
                     return j * size_scaling, i * size_scaling
+
+
+    def _find_goal_range(self):  # this only finds one goal!
+        structure = self.MAZE_STRUCTURE
+        size_scaling = self.MAZE_SIZE_SCALING
+        for i in range(len(structure)):
+            for j in range(len(structure[0])):
+                if structure[i][j] == 'g':
+                    minx = j * size_scaling - size_scaling * 0.5 - self._init_torso_x
+                    maxx = j * size_scaling + size_scaling * 0.5 - self._init_torso_x
+                    miny = i * size_scaling - size_scaling * 0.5 - self._init_torso_y
+                    maxy = i * size_scaling + size_scaling * 0.5 - self._init_torso_y
+                    return minx, maxx, miny, maxy
+
+
+    def _calculate_terminal(self, reward):
+        return reward == 1 or self.step_count > self.max_steps
+
