@@ -1,5 +1,8 @@
 # ant-env
-Ant Gather and Ant Maze Mujoco envs, separated from RLLab. Reproduced for use with RL algorithms implemented with separately or other frameworks.
+Ant Gather and Ant Maze Mujoco envs, separated from RLLab. Reproduced (aka mostly copied - please cite original repository) for use with RL algorithms implemented with separately or other frameworks.
+
+## Disclaimer
+I reproduced these for my own work, and have implemented my own reward functions - not guaranteed to be the original ones cited in their paper.
 
 ## Usage
 ```
@@ -18,5 +21,3 @@ if __name__ == '__main__':
 
 ## ToDo
 * Double Check Reward Functions
-* Fix Observations for both
-* Reward and Terminal Functions
