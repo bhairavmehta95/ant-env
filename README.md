@@ -1,22 +1,4 @@
-# ant-env
-Ant Gather and Ant Maze Mujoco envs, separated from RLLab. Reproduced for use with RL algorithms implemented with separately or other frameworks.
+# Ant Environments for RL
 
-## Usage
-```
-import gym
-from envs.ant_maze_env import AntMazeEnv
-from envs.ant_gather_env import AntGatherEnv
+Taken almost entirely from the [Tensorflow Models](https://github.com/tensorflow/models/tree/master/research/efficient-hrl/environments) repository, which is itself inspired by the work done by [RlLab](https://github.com/rll/rllab/blob/master/rllab/envs/mujoco/). Minor edit: visual observations, which we needed for some our own work.
 
-if __name__ == '__main__':
-    env = AntGatherEnv()
-    # env = AntMazeEnv()
-    env.reset()
-    while True:
-        obs, r, done, _ = env.step(env.action_space.sample())
-        env.render()
-```
-
-## ToDo
-* Double Check Reward Functions
-* Fix Observations for both
-* Reward and Terminal Functions
